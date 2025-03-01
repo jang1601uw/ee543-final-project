@@ -1,0 +1,43 @@
+﻿|***************************|
+    REFERENCE INFORMATION    
+|***************************|
+ Reference No.1 out of 1 
+
+Reference:
+   TYPE   : plane
+
+Status   : not in geometry
+
+
+Reference owner:
+ Model   :
+   NAME   : EXAMPLE_ARM 
+   TYPE   : Assembly
+ Feature :
+
+    FEATURE NUMBER       23
+    INTERNAL FEATURE ID  102
+    PARENTS = 72(#18) 76(#19) 
+
+
+ DATUM PLANE
+
+  NO.     ELEMENT NAME       INFO                                               
+  ---     -------------      -------------                                      
+   1      Feature Name       Defined                                            
+   2      Constraints        Defined                                            
+   2.1    Constraint #1      Defined                                            
+   2.1.1  Constr Type        Through                                            
+   2.1.2  Constr References  AXIS JOINT_1 of feat #18 (DATUM AXIS)              
+   2.2    Constraint #2      Defined                                            
+   2.2.1  Constr Type        Through                                            
+   2.2.2  Constr References  AXIS JOINT_1 of feat #18 (DATUM AXIS)              
+   3      Flip Datum Dir     Defined                                            
+   4      Fit                Defined                                            
+   4.1    Fit Type           Default                                            
+
+    NAME = ADTM1
+
+    FEATURE IS IN LAYER(S) :
+      01__ASM_ALL_DTM_PLN - OPERATION = SHOWN
+

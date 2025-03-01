@@ -1,0 +1,21 @@
+﻿!UI trail file version 1
+!Application name  `PRO`
+! Executed sub-command ProCmdWinCloseAsyn.
+!%CIBase window cannot be closed.
+< 0 1.058370 1776 0 0 893 1920 0 0 1200 13
+< 0 1.058370 1598 0 0 893 1920 0 0 1200 13
+!MT_CUST - Applied settings for mode # 6 : MT Asm Design
+~ Command `ProCmdWinCloseGroup` 
+!Command ProCmdWinClose was pushed from the software.
+! Executed sub-command ProCmdWinCloseAsyn.
+< 2 1.056000 1776 0 0 891 1920 0 0 1200 13
+< 2 1.056000 1598 0 0 891 1920 0 0 1200 13
+~ Minimize `main_dlg_cur` `main_dlg_cur`
+~ Restore `main_dlg_cur` `main_dlg_cur`
+~ Close `main_dlg_cur` `main_dlg_cur`
+!Command ProCmdOSExit was pushed from the software.
+! Message Dialog: Warning
+!               : Creo Parametric Student Edition (for educational use only) will terminate and any unsaved work will be lost.
+!               : Do you really want to exit?
+~ Activate `UI Message Dialog` `yes`
+!End of Trail File
