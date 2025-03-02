@@ -2,6 +2,8 @@ import time
 import numpy as np
 import serial
 import sys
+import matplotlib.pyplot as plt
+from Keyboard_joint_control import goals
 
 np.set_printoptions(precision=2, suppress=False)
 np.set_printoptions(formatter={'all': lambda x: f'{x:.2f}'})
@@ -31,16 +33,22 @@ class robot_controller():
         ---------------------------------------------------------------
         """
 
-        #define the DH parameter for the arm link
+        #define the DH parameter for the arm link (check out the robot drawings for the dimensions)
+        a1, a2, a3, a4, a5 = 0, 0, 100, 0, 0
+        alpha1, alpha2, alpha3, alpha4, alpha5 = 0, 90, 0, 90, 0
+        d1, d2, d3, d4, d5 = 61.8, 0, 0, 0, 236.89
+        th1, th2, th3, th4, th5 = goals[0], goals[1], goals[2], goals[3], 0
+
         # [a, alpha, d, theta (will be replaced by joint_positions)]
         self.dh_params = [ # this is for 4 joints setting
-            [0, 0, 0, 0],  # Joint 1
-            [0, 0, 0, 0],  # Joint 2
-            [0, 0, 0, 0],  # Joint 3
-            [0, 0, 0, 0]   # Joint 4
+            [alpha1, a1, d1, th1],  # Joint 1
+            [alpha2, a2, d2, th2],  # Joint 2
+            [alpha3, a3, d3, th3],  # Joint 3
+            [alpha4, a4, d4, th4],  # Joint 4
+            [alpha5, a5, d5, th5]   # Joint 5
         ]
 
-        self.angle_offsets = np.array([0, 0, 0, 0]) # this is for 4 joints setting
+        self.angle_offsets = np.array([180, 90, 90, 0]) # this is for 4 joints setting
 
         # the transformation matrices from first to last link 
         self.T_matrices = np.empty(self.joint_num) # no value when init
@@ -96,13 +104,9 @@ class robot_controller():
     
     def communication_end(self):
         self.ser.close()
+    
 
-    """
-    ---------------------------------------------------------------
-     Functions below set up the visualization
-    ---------------------------------------------------------------
-    """
-        
+
     """
     ---------------------------------------------------------------
      Functions below setup the transformation matrix for 
@@ -131,8 +135,67 @@ class robot_controller():
         return T
     
     def update_forward_kinematics(self):
+        T0_1 = self.dh_to_transformation_matrix(self, self.dh_params[0,0], self.dh_params[0,1], self.dh_to_transformation_matrix[0,2], self.dh_to_transformation_matrix[0,3])
+        T1_2 = self.dh_to_transformation_matrix(self, self.dh_params[1,0], self.dh_params[1,1], self.dh_to_transformation_matrix[1,2], self.dh_to_transformation_matrix[1,3])
+        T2_3 = self.dh_to_transformation_matrix(self, self.dh_params[2,0], self.dh_params[2,1], self.dh_to_transformation_matrix[2,2], self.dh_to_transformation_matrix[2,3])
+        T3_4 = self.dh_to_transformation_matrix(self, self.dh_params[3,0], self.dh_params[3,1], self.dh_to_transformation_matrix[3,2], self.dh_to_transformation_matrix[3,3])
+        T4_e = self.dh_to_transformation_matrix(self, self.dh_params[4,0], self.dh_params[4,1], self.dh_to_transformation_matrix[4,2], self.dh_to_transformation_matrix[4,3])
         
-       return None
+        T0_e = T0_1 @ T1_2 @ T2_3 @ T3_4 @ T4_e
+
+        pose_end_effector = T0_e @ self.base_frame
+
+        return T0_1, T1_2, T2_3, T3_4, T4_e, pose_end_effector
+
+
+
+    """
+    ---------------------------------------------------------------
+     Functions below set up the visualization
+    ---------------------------------------------------------------
+    """
+    def virtual_link_visulaization(self):
+        base_position = np.array([0, 0, 0])
+        T1_position = self.update_forward_kinematics[0][0:3, 3]
+        T2_position = self.update_forward_kinematics[1][0:3, 3]
+        T3_position = self.update_forward_kinematics[2][0:3, 3]
+        T4_position = self.update_forward_kinematics[3][0:3, 3]
+        end_effector_position = self.update_forward_kinematics[4][0:3, 3]
+
+        # Create a 3D plot for each joint position
+        fig = plt.figure(figsize=(8, 8))
+        ax = fig.add_subplot(111, projection='3d')
+
+        # Define points for plotting
+        x_points = [base_position[0], T1_position[0], T2_position[0], T3_position[0], T4_position[0], end_effector_position[0]]
+        y_points = [base_position[1], T1_position[1], T2_position[1], T3_position[1], T4_position[1], end_effector_position[1]]
+        z_points = [base_position[2], T1_position[2], T2_position[2], T3_position[2], T4_position[2], end_effector_position[2]]
+
+        # Plot each joint position with different markers
+        ax.scatter(base_position[0], base_position[1], base_position[2], color='r', marker='o', s=100, label='Base')
+        ax.scatter(T1_position[0], T1_position[1], T1_position[2], color='g', marker='o', s=100, label='Joint 1')
+        ax.scatter(T2_position[0], T2_position[1], T2_position[2], color='b', marker='o', s=100, label='Joint 2')
+        ax.scatter(T3_position[0], T3_position[1], T3_position[2], color='y', marker='o', s=100, label='Joint 3')
+        ax.scatter(T4_position[0], T4_position[1], T4_position[2], color='c', marker='o', s=100, label='Joint 4')
+        ax.scatter(end_effector_position[0], end_effector_position[1], end_effector_position[2], color='m', marker='o', s=100, label='End Effector')
+
+        # Connect the joints with lines
+        ax.plot(x_points, y_points, z_points, linestyle='-', color='k')
+
+        # Set axis limits
+        ax.set_xlim([-400, 400])
+        ax.set_ylim([-400, 400])
+
+        # Labels and viewing angle
+        ax.set_xlabel("X-axis")
+        ax.set_ylabel("Y-axis")
+        ax.set_zlabel("Z-axis")
+        ax.set_title("3D Plot of 4DOF Robotic Arm with Each Joint Position")
+        ax.legend()
+        ax.view_init(elev=20, azim=30)
+
+        # Show plot
+        plt.show()
 
 
 
