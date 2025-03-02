@@ -106,6 +106,57 @@ class robot_controller():
         self.ser.close()
     
 
+    """
+    ---------------------------------------------------------------
+     Functions below set up the visualization
+    ---------------------------------------------------------------
+    """
+    def virtual_link_visulaization(self):
+        base_position = np.array([0, 0, 0])
+        T1_position = self.update_forward_kinematics[0][0:3, 3]
+        T2_position = self.update_forward_kinematics[1][0:3, 3]
+        T3_position = self.update_forward_kinematics[2][0:3, 3]
+        T4_position = self.update_forward_kinematics[3][0:3, 3]
+        end_effector_position = self.update_forward_kinematics[4][0:3, 3]
+
+        # Create a 3D plot for each joint position
+        fig = plt.figure(figsize=(8, 8))
+        ax = fig.add_subplot(111, projection='3d')
+
+        # Define points for plotting
+        x_points = [base_position[0], T1_position[0], T2_position[0], T3_position[0], T4_position[0], end_effector_position[0]]
+        y_points = [base_position[1], T1_position[1], T2_position[1], T3_position[1], T4_position[1], end_effector_position[1]]
+        z_points = [base_position[2], T1_position[2], T2_position[2], T3_position[2], T4_position[2], end_effector_position[2]]
+
+        # Plot each joint position with different markers
+        ax.scatter(base_position[0], base_position[1], base_position[2], color='r', marker='o', s=100, label='Base')
+        ax.scatter(T1_position[0], T1_position[1], T1_position[2], color='g', marker='o', s=100, label='Joint 1')
+        ax.scatter(T2_position[0], T2_position[1], T2_position[2], color='b', marker='o', s=100, label='Joint 2')
+        ax.scatter(T3_position[0], T3_position[1], T3_position[2], color='y', marker='o', s=100, label='Joint 3')
+        ax.scatter(T4_position[0], T4_position[1], T4_position[2], color='c', marker='o', s=100, label='Joint 4')
+        ax.scatter(end_effector_position[0], end_effector_position[1], end_effector_position[2], color='m', marker='o', s=100, label='End Effector')
+
+        # Connect the joints with lines
+        ax.plot(x_points, y_points, z_points, linestyle='-', color='k')
+
+        # Set axis limits
+        ax.set_xlim([-400, 400])
+        ax.set_ylim([-400, 400])
+
+        # Labels and viewing angle
+        ax.set_xlabel("X-axis")
+        ax.set_ylabel("Y-axis")
+        ax.set_zlabel("Z-axis")
+        ax.set_title("3D Plot of 4DOF Robotic Arm with Each Joint Position")
+        ax.legend()
+        ax.view_init(elev=20, azim=30)
+
+        # Show plot
+        plt.show()
+
+        return None
+    
+    
 
     """
     ---------------------------------------------------------------
@@ -196,6 +247,8 @@ class robot_controller():
 
         # Show plot
         plt.show()
+
+        return None
 
 
 
