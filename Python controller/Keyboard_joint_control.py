@@ -15,6 +15,8 @@ import keyboard
 import sys, os
 from robot_controller import robot_controller
 
+import matplotlib.pyplot as plt
+
 
 def print_manu():
     print('  ')
@@ -38,6 +40,23 @@ def print_no_newline(string):
     sys.stdout.flush()
     return None
 
+def init_visualization():
+    # Create a 3D plot for each joint position
+    fig = plt.figure(figsize=(8, 8))
+    ax = fig.add_subplot(111, projection='3d')
+    
+    # Set axis limits
+    ax.set_xlim([-400, 400])
+    ax.set_ylim([-400, 400])
+
+    # Labels and viewing angle
+    ax.set_xlabel("X-axis")
+    ax.set_ylabel("Y-axis")
+    ax.set_zlabel("Z-axis")
+    ax.set_title("3D Plot of 4DOF Robotic Arm with Each Joint Position")
+    ax.legend()
+    ax.view_init(elev=20, azim=30)
+
 
 # init the Robot Controller
 RC = robot_controller()
@@ -51,11 +70,15 @@ keyboard_increment = 0.5
 goals = np.zeros(RC.joint_num)
 speeds = np.ones(RC.joint_num) * 80 # deg/s
 
-
 x = 0
 working = 1
 command = False
+mod_dh_sim = True
+
 print_manu()
+
+if mod_dh_sim:
+    init_visualization()
 
 while working==1:
 
@@ -135,4 +158,27 @@ while working==1:
         RC.joints_goto(goals, speeds)
         sys.stdout.write("\033[1A") # move curser up
         command = False
+    
+    if mod_dh_sim:
+        # the transformation matrices from first to last link 
+        T1, T2, T3, T4, T_end = RC.update_forward_kinematics(*goals[:4])
+        
+        # Extract joint positions
+        base_position = np.array([0, 0, 0])
+        T1_position = T1[0:3, 3]
+        T2_position = T2[0:3, 3]
+        T3_position = T3[0:3, 3]
+        T4_position = T4[0:3, 3]
+        end_effector_position = T_end[0:3, 3]
+
+        ax = RC.update_plot(ax,base_position,T1_position,T2_position,T3_position,T4_position,end_effector_position)
+
+
+    
+
+    
+
+
+    
+    
 

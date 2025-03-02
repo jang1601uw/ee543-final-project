@@ -31,19 +31,20 @@ class robot_controller():
         ---------------------------------------------------------------
         """
 
+        # define link lengths
+        L = [61.8, 100., 52.5, 184.39]
+
         #define the DH parameter for the arm link
         # [a, alpha, d, theta (will be replaced by joint_positions)]
         self.dh_params = [ # this is for 4 joints setting
-            [0, 0, 0, 0],  # Joint 1
-            [0, 0, 0, 0],  # Joint 2
-            [0, 0, 0, 0],  # Joint 3
-            [0, 0, 0, 0]   # Joint 4
+            [0., 0., L[0], 0.],  # Joint 1
+            [90., 0., 0., 0.],  # Joint 2
+            [0., L[1], 0., 0.],  # Joint 3
+            [90., 0., 0., 0.],  # Joint 4
+            [0., 0., L[2]+L[3], 0.]
         ]
 
-        self.angle_offsets = np.array([0, 0, 0, 0]) # this is for 4 joints setting
-
-        # the transformation matrices from first to last link 
-        self.T_matrices = np.empty(self.joint_num) # no value when init
+        self.angle_offsets = np.array([180., 90., 90., 0]) # this is for 4 joints setting
 
         #define the base frame
         self.base_frame = np.eye(self.joint_num)
@@ -102,7 +103,24 @@ class robot_controller():
      Functions below set up the visualization
     ---------------------------------------------------------------
     """
-        
+    def update_plot(self,ax,base_position,T1_position,T2_position,T3_position,T4_position,end_effector_position):
+        # Define points for plotting
+        x_points = [base_position[0], T1_position[0], T2_position[0], T3_position[0], T4_position[0], end_effector_position[0]]
+        y_points = [base_position[1], T1_position[1], T2_position[1], T3_position[1], T4_position[1], end_effector_position[1]]
+        z_points = [base_position[2], T1_position[2], T2_position[2], T3_position[2], T4_position[2], end_effector_position[2]]
+
+        # Plot each joint position with different markers
+        ax.scatter(base_position[0], base_position[1], base_position[2], color='r', marker='o', s=100, label='Base')
+        ax.scatter(T1_position[0], T1_position[1], T1_position[2], color='g', marker='o', s=100, label='Joint 1')
+        ax.scatter(T2_position[0], T2_position[1], T2_position[2], color='b', marker='o', s=100, label='Joint 2')
+        ax.scatter(T3_position[0], T3_position[1], T3_position[2], color='y', marker='o', s=100, label='Joint 3')
+        ax.scatter(T4_position[0], T4_position[1], T4_position[2], color='c', marker='o', s=100, label='Joint 4')
+        ax.scatter(end_effector_position[0], end_effector_position[1], end_effector_position[2], color='m', marker='o', s=100, label='End Effector')
+
+        # Connect the joints with lines
+        ax.plot(x_points, y_points, z_points, linestyle='-', color='k')
+        plt.show()
+        return None
     """
     ---------------------------------------------------------------
      Functions below setup the transformation matrix for 
@@ -130,9 +148,19 @@ class robot_controller():
         
         return T
     
-    def update_forward_kinematics(self):
+    def update_forward_kinematics(self,goals):
+        T0_1 = self.dh_to_transformation_matrix(self,self.dh_params[0,0],self.dh_params[0,1],self.dh_params[0,2],goals[0]+self.angle_offsets[0])
+        T1_2 = self.dh_to_transformation_matrix(self,self.dh_params[1,0],self.dh_params[1,1],self.dh_params[1,2],goals[1]+self.angle_offsets[1])
+        T2_3 = self.dh_to_transformation_matrix(self,self.dh_params[2,0],self.dh_params[2,1],self.dh_params[2,2],goals[2]+self.angle_offsets[2])
+        T3_4 = self.dh_to_transformation_matrix(self,self.dh_params[3,0],self.dh_params[3,1],self.dh_params[3,2],goals[3]+self.angle_offsets[3])
+        T4_e = self.dh_to_transformation_matrix(self,self.dh_params[4,0],self.dh_params[4,1],self.dh_params[4,2],self.dh_params[4,3])
+
+        T0_2 = T0_1 @ T1_2
+        T0_3 = T0_2 @ T2_3
+        T0_4 = T0_3 @ T3_4
+        T0_e = T0_4 @ T4_e
         
-       return None
+        return T0_1, T0_2, T0_3, T0_4, T0_e
 
 
 
