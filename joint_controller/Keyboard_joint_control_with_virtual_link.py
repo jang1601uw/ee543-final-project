@@ -1,11 +1,28 @@
 import time
 import numpy as np
-import keyboard
-import sys
+from scipy.optimize import minimize
+from pynput import keyboard
 import os
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 from robot_controller import robot_controller
+
+d2r = 2*np.pi/360.0
+deg2rad = d2r
+rad2deg = 1/d2r
+
+# Global variable to track the last key pressed
+last_key = None
+
+# which mode for inverse kinematics (symbolic or numerical)
+symbolic = False
+
+def on_press(key):
+    global last_key
+    try:
+        last_key = key.char
+    except AttributeError:
+        pass
 
 # Disable the default quit key ('q') in matplotlib so that pressing it won't close the plot.
 plt.rcParams['keymap.quit'] = ''
@@ -43,8 +60,9 @@ def compute_transformation_matrices(theta1, theta2, theta3, theta4):
     T3 = T2 @ T_23
     T4 = T3 @ T_34
     T_end = T4 @ T_4e
+    ee_loc = T_end[:3,3]
 
-    return T0, T1, T2, T3, T4, T_end
+    return T0, T1, T2, T3, T4, T_end, ee_loc
 
 def plot_axes(ax, T, length=30):
     """Plot coordinate axes for a transformation matrix T."""
@@ -61,7 +79,7 @@ def update_plot():
     """Update the robot arm plot."""
     global theta1, theta2, theta3, theta4, status_str
 
-    T0, T1, T2, T3, T4, T_end = compute_transformation_matrices(theta1, theta2, theta3, theta4)
+    T0, T1, T2, T3, T4, T_end, _ = compute_transformation_matrices(theta1, theta2, theta3, theta4)
 
     # Define points for the arm.
     # Index 0 is the base (0,0,0) which is not labeled.
@@ -121,6 +139,9 @@ def print_menu():
     print('[Joint 2    +]: 2 | [Joint 2     -]: w')
     print('[Joint 3    +]: 3 | [Joint 3     -]: e')
     print('[Joint 4    +]: 4 | [Joint 4     -]: r')
+    print('[Up      +]: "up" | [Down        -]: "down"')
+    print('[Right+]: "right" | [Left        -]: "left"')
+    print('[Fwd        +]: f | [Bk          -]: b')
     print('[Grasper Open]: 5 | [Grasper Close]: t')
     print('[Homing]: h')
     print('-----------------------------------------')
@@ -130,10 +151,85 @@ def print_no_newline(string):
     status_str = string  # Update the global status string.
     print("\r" + string, end="", flush=True)
 
+def normalize_angle(angle, range=(-180, 180)):
+    """
+    Normalizes an angle to be within the specified range.
+
+    Args:
+        angle: The angle to normalize (in deg).
+        range: A tuple specifying the desired range (min, max). 
+               Defaults to [-180, 180].
+
+    Returns:
+        The normalized angle (in deg).
+    """
+    min_range, max_range = range
+    width = max_range - min_range
+    
+    normalized_angle = angle
+    while normalized_angle >= max_range:
+        normalized_angle -= width
+    while normalized_angle < min_range:
+        normalized_angle += width
+    
+    return normalized_angle
+
+def symbolic_sol(desired_pos):
+    X = desired_pos[0]
+    Y = desired_pos[1]
+    Z = desired_pos[2]
+
+    l1 = 61.8
+    l2 = 100.
+    l3 = 52.5
+
+    t1 = 0
+    t2 = 0
+    t3 = 0
+
+    joints = np.array([t1, t2, t3])
+    return joints
+
+def numerical_sol(desired_pos):
+    # inspired by ChatGPT: https://chat.openai.com/share/88b7d977-e666-4705-b4cd-42edc23a91c3
+
+    initial_guess = np.array([theta1, theta2, theta3]) * deg2rad
+    res = minimize(objective_function, initial_guess, args=(desired_pos), method='SLSQP') # in terms of SLSQP works well, however BFGS does not work. You can also test other methods, they may have different performance, especially 
+    if res.success:
+        return [normalize_angle(angle) for angle in res.x * rad2deg]
+    else:
+        print("Inverse kinematics did not converge")
+        return initial_guess * rad2deg
+
+
+def objective_function(joints, desired_pos):
+    """
+    The objective function that calculates the error between the current end-effector
+    position and the desired position.
+    """
+    _, _, _, _, _, _, ee_loc = compute_transformation_matrices(joints[0], joints[1], joints[2], 0)
+
+    # Calculate error
+    error = np.linalg.norm(np.array(ee_loc).astype(np.float64).flatten() - np.array(desired_pos))
+    return error
+
+def inverse_kinematics(symbolic, desired_pos):
+    if symbolic:
+        joints = symbolic_sol(desired_pos)
+    else:
+        joints = numerical_sol(desired_pos)
+    return joints
+
+global last_key
+
 # Initialize robot controller.
 RC = robot_controller()
 RC.communication_begin()
 RC.joints_homing()
+
+# Start keyboard listener
+listener = keyboard.Listener(on_press=on_press)
+listener.start()
 
 # Set movement parameters.
 keyboard_increment = 1
@@ -142,6 +238,8 @@ speeds = np.ones(RC.joint_num) * 80  # deg/s
 
 # Initial joint angles.
 theta1, theta2, theta3, theta4 = 0, 0, 0, 0
+_, _, _, _, _, _, current_pos = compute_transformation_matrices(theta1,theta2,theta3,theta4)
+desired_pos = current_pos
 last_input_time = time.time()
 last_plot_update_time = time.time()  # For managing plot update frequency
 
@@ -169,62 +267,107 @@ print_menu()
 
 try:
     while True:
+        if last_key is not None:
+            current_key = last_key
+            last_key = None  # Reset the global key after reading
         command = False
 
         # Check for keyboard input.
-        if keyboard.is_pressed('9'):
+        if current_key == '9':
             os.system('cls' if os.name == 'nt' else 'clear')
             raise SystemExit("Closing Keyboard Controller")
 
-        if keyboard.is_pressed('1'):
+        if current_key == '1':
             print_no_newline(" Moving: Joint 1 +++         ")
             theta1 += keyboard_increment
             goals[0] += keyboard_increment
             command = True
 
-        if keyboard.is_pressed('q'):
+        if current_key == 'q':
             print_no_newline(" Moving: Joint 1 ---         ")
             theta1 -= keyboard_increment
             goals[0] -= keyboard_increment
             command = True
 
-        if keyboard.is_pressed('2'):
+        if current_key == '2':
             print_no_newline(" Moving: Joint 2 +++         ")
             theta2 += keyboard_increment
             goals[1] += keyboard_increment
             command = True
 
-        if keyboard.is_pressed('w'):
+        if current_key == 'w':
             print_no_newline(" Moving: Joint 2 ---         ")
             theta2 -= keyboard_increment
             goals[1] -= keyboard_increment
             command = True
 
-        if keyboard.is_pressed('3'):
+        if current_key == '3':
             print_no_newline(" Moving: Joint 3 +++         ")
             theta3 += keyboard_increment
             goals[2] += keyboard_increment
             command = True
 
-        if keyboard.is_pressed('e'):
+        if current_key == 'e':
             print_no_newline(" Moving: Joint 3 ---         ")
             theta3 -= keyboard_increment
             goals[2] -= keyboard_increment
             command = True
 
-        if keyboard.is_pressed('4'):
+        if current_key == '4':
             print_no_newline(" Moving: Joint 4 +++         ")
             theta4 += keyboard_increment
             goals[3] += keyboard_increment
             command = True
 
-        if keyboard.is_pressed('r'):
+        if current_key == 'r':
             print_no_newline(" Moving: Joint 4 ---         ")
             theta4 -= keyboard_increment
             goals[3] -= keyboard_increment
             command = True
 
-        if keyboard.is_pressed('h'):
+        if current_key == 'up':
+            print_no_newline(" Moving: End Effector up ---         ")
+            desired_pos[2] = current_pos[2] + keyboard_increment
+            theta1, theta2, theta3 = inverse_kinematics(symbolic, desired_pos)
+            goals[:2] = [theta1, theta2, theta3]
+            command = True
+
+        if current_key == 'down':
+            print_no_newline(" Moving: End Effector down ---         ")
+            desired_pos[2] = current_pos[2] - keyboard_increment
+            theta1, theta2, theta3 = inverse_kinematics(symbolic, desired_pos)
+            goals[:2] = [theta1, theta2, theta3]
+            command = True
+
+        if current_key == 'left':
+            print_no_newline(" Moving: End Effector left ---         ")
+            desired_pos[0] = current_pos[0] - keyboard_increment
+            theta1, theta2, theta3 = inverse_kinematics(symbolic, desired_pos)
+            goals[:2] = [theta1, theta2, theta3]
+            command = True
+
+        if current_key == 'right':
+            print_no_newline(" Moving: End Effector right ---         ")
+            desired_pos[0] = current_pos[0] + keyboard_increment
+            theta1, theta2, theta3 = inverse_kinematics(symbolic, desired_pos)
+            goals[:2] = [theta1, theta2, theta3]
+            command = True
+
+        if current_key == 'f':
+            print_no_newline(" Moving: End Effector forward ---         ")
+            desired_pos[1] = current_pos[1] + keyboard_increment
+            theta1, theta2, theta3 = inverse_kinematics(symbolic, desired_pos)
+            goals[:2] = [theta1, theta2, theta3]
+            command = True
+
+        if current_key == 'b':
+            print_no_newline(" Moving: End Effector backward ---         ")
+            desired_pos[1] = current_pos[1] - keyboard_increment
+            theta1, theta2, theta3 = inverse_kinematics(symbolic, desired_pos)
+            goals[:2] = [theta1, theta2, theta3]
+            command = True
+
+        if current_key == 'h':
             # When homing is pressed, slow down the motor.
             print("Homing robot (slow movement)...")
             homing_speed = np.ones(RC.joint_num) * 5  # Slower speed for homing (deg/s)
@@ -235,11 +378,11 @@ try:
             RC.joints_goto(goals, homing_speed)  # Send homing command with slower speeds.
             command = True
 
-        if keyboard.is_pressed('5'):
+        if current_key == '5':
             print_no_newline(" Grasper Open....                  ")
             RC.gripper_set_percentage(0)
 
-        if keyboard.is_pressed('t'):
+        if current_key == 't':
             print_no_newline(" Grasper Close....                  ")
             RC.gripper_set_percentage(100)
 
@@ -251,14 +394,20 @@ try:
             # Update plot every 0.01 seconds when there is input.
             if time.time() - last_plot_update_time >= 0.01:
                 update_plot()
+                _, _, _, _, _, _, current_pos = compute_transformation_matrices(theta1, theta2, theta3, theta4)
+                desired_pos = current_pos
                 last_plot_update_time = time.time()
         # When no command is given, update the plot after a short delay.
         elif time.time() - last_input_time > 0.01:
             if time.time() - last_plot_update_time >= 0.01:
                 update_plot()
+                _, _, _, _, _, _, current_pos = compute_transformation_matrices(theta1, theta2, theta3, theta4)
+                desired_pos = current_pos
                 last_plot_update_time = time.time()
 
         time.sleep(0.0001)  # Small delay to reduce CPU usage.
 
 except SystemExit:
     plt.ioff()
+finally:
+    listener.stop()
