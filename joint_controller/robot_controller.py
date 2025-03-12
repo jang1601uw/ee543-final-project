@@ -17,7 +17,9 @@ class robot_controller():
         self.robotstate_joint_vels = np.zeros(self.joint_num)
         self.robotState_endeffector_orientation = np.zeros(3)
         self.robotstate_endeffector_pose = np.zeros(3)
-        self.robotstate_gripper_close = False
+        # Remove the boolean approach for gripper and instead track the gripper angle.
+        # self.robotstate_gripper_close = False  
+        self.robotstate_gripper_angle = 90  # Default to open (90 degrees)
 
         # Define homing position in joint space
         self.robot_homing_joint_poses = np.zeros(self.joint_num)
@@ -40,10 +42,10 @@ class robot_controller():
         self.servo_pulse_min = 70   # -90 degrees for MG996R
 
         # Define gripper control parameters
-        self.gripper_open_angle = 0  # Degrees
+        self.gripper_open_angle = 90  # Degrees
         self.gripper_close_angle = -90  # Degrees
 
-        # Compute gripper pulse lengths
+        # Compute gripper pulse lengths (for full open/close if needed)
         self.gripper_pulse_open = self.angle_to_pulse_length(self.gripper_open_angle)
         self.gripper_pulse_close = self.angle_to_pulse_length(self.gripper_close_angle)
 
@@ -67,11 +69,13 @@ class robot_controller():
         self.ser.close()
     
     def angle_to_pulse_length(self, angles):
+        # Support both scalars and arrays
         clipped_angles = np.clip(angles, self.servo_angle_min, self.servo_angle_max)
         pulse_lengths = ((clipped_angles - self.servo_angle_min) * (self.servo_pulse_max - self.servo_pulse_min) /
-                         (self.servo_angle_max - self.servo_angle_min) + self.servo_pulse_min).astype(int)
-        return pulse_lengths
-
+                         (self.servo_angle_max - self.servo_angle_min) + self.servo_pulse_min)
+        # If the input was a scalar, convert to int, otherwise int conversion is applied elementwise.
+        return np.array(pulse_lengths, dtype=int) if np.ndim(pulse_lengths) else int(pulse_lengths)
+    
     def pulse_length_to_byte(self, pulse_lengths):
         ret = []
         for pulse_length in pulse_lengths:
@@ -82,9 +86,9 @@ class robot_controller():
     
     def joints_homing(self):
         self.robotstate_joint_poses = self.robot_homing_joint_poses.copy()
-        self.robotstate_gripper_close = False
+        # Instead of using a fixed gripper open value, use the stored gripper angle.
         joint_pulse_lengthes = self.angle_to_pulse_length(self.robotstate_joint_poses)
-        joint_pulse_lengthes = np.append(joint_pulse_lengthes, self.gripper_pulse_open)
+        joint_pulse_lengthes = np.append(joint_pulse_lengthes, self.angle_to_pulse_length(self.robotstate_gripper_angle))
         numbers = self.pulse_length_to_byte(joint_pulse_lengthes)
         while self.ser.in_waiting == 0:
             continue
@@ -110,11 +114,9 @@ class robot_controller():
             sys.stdout.flush()    
             if np.all(np.abs(self.robotstate_joint_poses - goals) <= self.joints_goto_tolerance):
                 reached_goal = True
+            # Always use the stored gripper angle, so it doesn't change during joint movements.
             joint_pulse_lengthes = self.angle_to_pulse_length(self.robotstate_joint_poses)
-            if self.robotstate_gripper_close:
-                joint_pulse_lengthes = np.append(joint_pulse_lengthes, self.gripper_pulse_close)
-            else:
-                joint_pulse_lengthes = np.append(joint_pulse_lengthes, self.gripper_pulse_open)
+            joint_pulse_lengthes = np.append(joint_pulse_lengthes, self.angle_to_pulse_length(self.robotstate_gripper_angle))
             numbers = self.pulse_length_to_byte(joint_pulse_lengthes)
             while self.ser.in_waiting == 0:
                 continue
@@ -125,9 +127,10 @@ class robot_controller():
                 time.sleep(np.clip((1/self.com_frequency)-dur-0.005, 0, (1/self.com_frequency)))
     
     def gripper_set_angle(self, angle):
+        # Clip and update the gripper angle state
         angle = np.clip(angle, self.gripper_close_angle, self.gripper_open_angle)
-        pulse_length = self.angle_to_pulse_length(angle)
         self.robotstate_gripper_angle = angle
+        pulse_length = self.angle_to_pulse_length(angle)
         joint_pulse_lengthes = self.angle_to_pulse_length(self.robotstate_joint_poses)
         joint_pulse_lengthes = np.append(joint_pulse_lengthes, pulse_length)
         numbers = self.pulse_length_to_byte(joint_pulse_lengthes)
@@ -136,8 +139,10 @@ class robot_controller():
         if self.ser.read() == b'A':
             self.ser.write(numbers)
             self.ser.flush()
-    
+
     def gripper_set_percentage(self, percentage):
         percentage = np.clip(percentage, 0, 100)
-        angle = percentage * (self.gripper_close_angle - self.gripper_open_angle) / 100
+        # Calculate the gripper angle such that 0% means fully open and 100% means fully closed.
+        # This formula maps 0% -> gripper_open_angle and 100% -> gripper_close_angle.
+        angle = self.gripper_open_angle - (percentage/100) * (self.gripper_open_angle - self.gripper_close_angle)
         self.gripper_set_angle(angle)
