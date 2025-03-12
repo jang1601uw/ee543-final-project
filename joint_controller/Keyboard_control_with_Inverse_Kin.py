@@ -1,4 +1,4 @@
-import time
+import time 
 import numpy as np
 import keyboard
 import sys
@@ -8,11 +8,13 @@ from mpl_toolkits.mplot3d import Axes3D
 from robot_controller import robot_controller
 from scipy.optimize import minimize   # Needed for the IK optimization
 
-# Disable the default quit key ('q') in matplotlib so that pressing it won't close the plot.
+# Disable default matplotlib key shortcuts.
 plt.rcParams['keymap.quit'] = ''
+plt.rcParams['keymap.save'] = ''  # Disable 's' from triggering the save dialog
 
-# Global variable to store status message.
+# Global variables to store status messages.
 status_str = ""
+last_status_message = ""  # Used to avoid reprinting the same message multiple times
 
 # Conversion constants and helper function for angle normalization.
 d2r = 2 * np.pi / 360.0
@@ -78,7 +80,6 @@ def compute_transformation_matrices(theta1, theta2, theta3, theta4):
     T_end = T4 @ T_4e
 
     return T0, T1, T2, T3, T4, T_end
-
 
 def get_dh_params(joints):
     """
@@ -181,15 +182,12 @@ def update_plot():
     """Update the robot arm plot."""
     global theta1, theta2, theta3, theta4, status_str
 
-    # Compute the chain of transformations from the current joint angles.
     T0, T1, T2, T3, T4, T_end = compute_transformation_matrices(theta1, theta2, theta3, theta4)
 
-    # Define points for the arm.
     x_points[:] = [0, T1[0, 3], T2[0, 3], T3[0, 3], T4[0, 3], T_end[0, 3]]
     y_points[:] = [0, T1[1, 3], T2[1, 3], T3[1, 3], T4[1, 3], T_end[1, 3]]
     z_points[:] = [0, T1[2, 3], T2[2, 3], T3[2, 3], T4[2, 3], T_end[2, 3]]
 
-    # Clear the axes.
     ax.cla()
     ax.set_xlim([-200, 200])
     ax.set_ylim([-200, 200])
@@ -205,28 +203,20 @@ def update_plot():
     plot_axes(ax, T3)
     plot_axes(ax, T4)
 
-    # Plot connecting lines for the arm.
     ax.plot(x_points, y_points, z_points, '-k', alpha=0.5)
-
-    # Plot individual joints with distinct colors and legend labels.
     ax.plot([x_points[0]], [y_points[0]], [z_points[0]], 'o', color='r', markersize=8, label="Joint 1")
     ax.plot([x_points[2]], [y_points[2]], [z_points[2]], 'o', color='g', markersize=8, label="Joint 2")
     ax.plot([x_points[3]], [y_points[3]], [z_points[3]], 'o', color='b', markersize=8, label="Joint 3")
     ax.plot([x_points[4]], [y_points[4]], [z_points[4]], 'o', color='m', markersize=8, label="Joint 4")
     ax.plot([x_points[5]], [y_points[5]], [z_points[5]], 'o', color='c', markersize=8, label="End Effector")
 
-    # Place the legend at the left middle outside of the plot.
     ax.legend(fontsize=8, loc='center right', bbox_to_anchor=(0.1, 0.5))
-
-    # Display end-effector position and joint angles at the top left.
     status_text = (f"End Position: X={T_end[0, 3]:.2f}, Y={T_end[1, 3]:.2f}, Z={T_end[2, 3]:.2f}\n"
                    f"Angles: θ1={theta1:.2f}, θ2={theta2:.2f}, θ3={theta3:.2f}, θ4={theta4:.2f}")
     ax.text2D(0.01, 0.99, status_text, transform=ax.transAxes, fontsize=8,
               verticalalignment='top', horizontalalignment='left', bbox=dict(facecolor='white', alpha=0.5))
-    # Display the current status message in the top right.
     ax.text2D(0.95, 0.95, "Status: " + status_str, transform=ax.transAxes, fontsize=8,
               horizontalalignment='right', verticalalignment='top', bbox=dict(facecolor='white', alpha=0.5))
-
     fig.canvas.draw_idle()
     fig.canvas.flush_events()
 
@@ -244,11 +234,18 @@ def print_menu():
     print('[Homing]: h')
     print('[Inverse Kinematics]: i')
     print('-----------------------------------------')
+    print('Position Controls:')
+    print('[+x]: a | [-x]: z')
+    print('[+y]: s | [-y]: x')
+    print('[+z]: d | [-z]: c')
+    print('-----------------------------------------')
 
 def print_no_newline(string):
-    global status_str
-    status_str = string  # Update the global status string.
-    print("\r" + string, end="", flush=True)
+    global status_str, last_status_message
+    if string != last_status_message:
+        last_status_message = string
+        status_str = string
+        print("\r" + string, end="", flush=True)
 
 # Initialize robot controller.
 RC = robot_controller()
@@ -258,12 +255,20 @@ RC.joints_homing()
 # Set movement parameters.
 keyboard_increment = 1
 goals = np.zeros(RC.joint_num)
-speeds = np.ones(RC.joint_num) * 120 # deg/s
+speeds = np.ones(RC.joint_num) * 120  # deg/s
+
+# Position control parameters.
+pos_increment = 5  # Increment for Cartesian moves
 
 # Initial joint angles.
 theta1, theta2, theta3, theta4 = 0, 0, 0, 0
+
+# Initialize current target position from current end-effector pose.
+T_end_init = forward_kinematics_from_dh([theta1, theta2, theta3, theta4])
+current_target_pos = [T_end_init[0, 3], T_end_init[1, 3], T_end_init[2, 3]]
+
 last_input_time = time.time()
-last_plot_update_time = time.time()  # For managing plot update frequency
+last_plot_update_time = time.time()
 
 # Flag to prevent multiple IK triggers per key press.
 ik_triggered = False
@@ -272,7 +277,6 @@ ik_triggered = False
 plt.ion()
 fig = plt.figure(figsize=(8, 8))
 ax = fig.add_subplot(111, projection='3d')
-# Create an initial arm plot (will be redrawn each update).
 arm_plot, = ax.plot([], [], [], '-o', color='k', markersize=8)
 
 x_points = [0] * 6
@@ -287,119 +291,173 @@ ax.set_ylabel("Y-axis", fontsize=8)
 ax.set_zlabel("Z-axis", fontsize=8)
 ax.set_title("4DOF Robotic Arm", fontsize=10)
 
-# Display menu.
 print_menu()
 
 try:
     while True:
         command = False
 
-        # Check for keyboard input.
         if keyboard.is_pressed('9'):
             os.system('cls' if os.name == 'nt' else 'clear')
             raise SystemExit("Closing Keyboard Controller")
 
+        # Joint-by-joint controls.
         if keyboard.is_pressed('1'):
             print_no_newline(" Moving: Joint 1 +++         ")
             theta1 += keyboard_increment
             goals[0] += keyboard_increment
             command = True
-
         if keyboard.is_pressed('q'):
             print_no_newline(" Moving: Joint 1 ---         ")
             theta1 -= keyboard_increment
             goals[0] -= keyboard_increment
             command = True
-
         if keyboard.is_pressed('2'):
             print_no_newline(" Moving: Joint 2 +++         ")
             theta2 += keyboard_increment
             goals[1] += keyboard_increment
             command = True
-
         if keyboard.is_pressed('w'):
             print_no_newline(" Moving: Joint 2 ---         ")
             theta2 -= keyboard_increment
             goals[1] -= keyboard_increment
             command = True
-
         if keyboard.is_pressed('3'):
             print_no_newline(" Moving: Joint 3 +++         ")
             theta3 += keyboard_increment
             goals[2] += keyboard_increment
             command = True
-
         if keyboard.is_pressed('e'):
             print_no_newline(" Moving: Joint 3 ---         ")
             theta3 -= keyboard_increment
             goals[2] -= keyboard_increment
             command = True
-
         if keyboard.is_pressed('4'):
             print_no_newline(" Moving: Joint 4 +++         ")
             theta4 += keyboard_increment
             goals[3] += keyboard_increment
             command = True
-
         if keyboard.is_pressed('r'):
             print_no_newline(" Moving: Joint 4 ---         ")
             theta4 -= keyboard_increment
             goals[3] -= keyboard_increment
             command = True
 
+        # Homing command at 10% speed.
         if keyboard.is_pressed('h'):
-            # When homing is pressed, slow down the motor.
-            print("Homing robot (slow movement)...")
-            homing_speed = np.ones(RC.joint_num) * 1  # Slower speed for homing (deg/s)
-            RC.joints_homing()  # Command homing movement.
-            goals = RC.robot_homing_joint_poses.copy()  # Get updated positions.
+            print_no_newline("Homing robot (10% speed)...")
+            homing_speed = speeds * 0.1
+            RC.joints_homing()
+            goals = RC.robot_homing_joint_poses.copy()
             theta1, theta2, theta3, theta4 = goals[:4]
-            RC.joints_goto(goals, homing_speed)  # Send homing command with slower speeds.
+            RC.joints_goto(goals, homing_speed)
             command = True
 
         if keyboard.is_pressed('5'):
             print_no_newline(" Grasper Open....                  ")
-            RC.gripper_set_percentage(0)
-
+            RC.gripper_set_angle(RC.gripper_open_angle)  # Fully open
         if keyboard.is_pressed('t'):
             print_no_newline(" Grasper Close....                  ")
-            RC.gripper_set_percentage(100)
+            RC.gripper_set_percentage(55)
 
-        # New keyboard command for inverse kinematics.
+        # Inverse Kinematics for a preset position using key "i"
         if keyboard.is_pressed('i') and not ik_triggered:
             ik_triggered = True
             print_no_newline(" Performing Inverse Kinematics...  ")
-            # Define a desired end-effector position (adjust as needed).
-            desired_pos = [217, 0, 132]
-            # Use current joint angles as the initial guess.
+            desired_pos = [212.82, 0, -20.21]  # desired target for key "i"
             initial_guess = [theta1, theta2, theta3, theta4]
             new_angles = inverse_kinematics(get_dh_params, desired_pos, initial_guess)
-            print("IK result:", new_angles)  # Debug: show computed angles
-            # Update joint variables and goals with the new angles.
+            
+            # Add 90 degrees to joint 4 and normalize the angle.
+            new_angles[3] = normalize_angle(new_angles[3] + 90)
+            
             theta1, theta2, theta3, theta4 = new_angles
             goals[0:4] = new_angles[0:4]
-            command = True
+            RC.joints_goto(goals, speeds * 0.1)
+            last_input_time = time.time()
+            update_plot()
+            continue
 
-        # Reset the IK trigger when the key is released.
-        if not keyboard.is_pressed('i'):
+        if keyboard.is_pressed('k') and not ik_triggered:
+            ik_triggered = True
+            print_no_newline(" Grasper Close then Returning to desired position... ")
+            
+            # First, close the gripper.
+            RC.gripper_set_percentage(55)
+            time.sleep(0.5)  # Optional: allow a brief delay for the gripper to close
+            
+            # Then, perform the IK to move to the preset position.
+            desired_pos = [0, 0, 398.69]  # adjust these coordinates as needed
+            initial_guess = [theta1, theta2, theta3, theta4]
+            new_angles = inverse_kinematics(get_dh_params, desired_pos, initial_guess)
+            
+            # Adjust joint 4 similarly as in the "i" block.
+            new_angles[3] = normalize_angle(new_angles[3] - 90)
+            
+            theta1, theta2, theta3, theta4 = new_angles
+            goals[0:4] = new_angles[0:4]
+            RC.joints_goto(goals, speeds * 0.1)
+            last_input_time = time.time()
+            update_plot()
+            continue
+
+
+        # Reset the IK trigger when neither "i" nor "k" is pressed.
+        if not (keyboard.is_pressed('i') or keyboard.is_pressed('k')):
             ik_triggered = False
 
-        # If a command was given, send it to the robot and update last input time.
+        # ---- Cartesian (Position) control keys ----
+        pos_command = False
+        pos_msg = ""
+        if keyboard.is_pressed('a'):
+            current_target_pos[0] += pos_increment   # +x
+            pos_command = True
+            pos_msg += " +X"
+        if keyboard.is_pressed('z'):
+            current_target_pos[0] -= pos_increment   # -x
+            pos_command = True
+            pos_msg += " -X"
+        if keyboard.is_pressed('s'):
+            current_target_pos[1] += pos_increment   # +y
+            pos_command = True
+            pos_msg += " +Y"
+        if keyboard.is_pressed('x'):
+            current_target_pos[1] -= pos_increment   # -y
+            pos_command = True
+            pos_msg += " -Y"
+        if keyboard.is_pressed('d'):
+            current_target_pos[2] += pos_increment   # +z
+            pos_command = True
+            pos_msg += " +Z"
+        if keyboard.is_pressed('c'):
+            current_target_pos[2] -= pos_increment   # -z
+            pos_command = True
+            pos_msg += " -Z"
+
+        if pos_command:
+            print_no_newline(" Moving in Cartesian space:" + pos_msg + " +++")
+            initial_guess = [theta1, theta2, theta3, theta4]
+            new_angles = inverse_kinematics(get_dh_params, current_target_pos, initial_guess)
+            theta1, theta2, theta3, theta4 = new_angles
+            goals[0:4] = new_angles[0:4]
+            RC.joints_goto(goals, speeds * 0.5)
+            last_input_time = time.time()
+            update_plot()
+            continue
+
         if command:
             goals = np.clip(goals, RC.servo_angle_min, RC.servo_angle_max)
             RC.joints_goto(goals, speeds)
             last_input_time = time.time()
-            # Update plot every 0.01 seconds when there is input.
             if time.time() - last_plot_update_time >= 0.01:
                 update_plot()
                 last_plot_update_time = time.time()
-        # When no command is given, update the plot after a short delay.
         elif time.time() - last_input_time > 0.01:
             if time.time() - last_plot_update_time >= 0.01:
                 update_plot()
                 last_plot_update_time = time.time()
 
-        time.sleep(0.0001)  # Small delay to reduce CPU usage.
+        time.sleep(0.0001)
 
 except SystemExit:
     plt.ioff()
