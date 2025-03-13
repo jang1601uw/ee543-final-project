@@ -387,12 +387,36 @@ try:
             time.sleep(0.5)  # Optional: allow a brief delay for the gripper to close
             
             # Then, perform the IK to move to the preset position.
+            desired_pos = [-212.82, 0, -20.21] # [0, 0, 398.69]  # adjust these coordinates as needed
+            initial_guess = [theta1, theta2, theta3, theta4]
+            new_angles = inverse_kinematics(get_dh_params, desired_pos, initial_guess)
+            
+            # Adjust joint 4 similarly as in the "i" block.
+            new_angles[3] = normalize_angle(new_angles[3] - 180)
+            
+            theta1, theta2, theta3, theta4 = new_angles
+            goals[0:4] = new_angles[0:4]
+            RC.joints_goto(goals, speeds * 0.1)
+            last_input_time = time.time()
+            RC.gripper_set_angle(RC.gripper_open_angle)
+            update_plot()
+            continue
+
+        if keyboard.is_pressed('p') and not ik_triggered:
+            ik_triggered = True
+            print_no_newline(" Grasper Close then Returning to original desired position... ")
+            
+            # First, close the gripper.
+            #RC.gripper_set_percentage(55)
+            #time.sleep(0.5)  # Optional: allow a brief delay for the gripper to close
+            
+            # Then, perform the IK to move to the preset position.
             desired_pos = [0, 0, 398.69]  # adjust these coordinates as needed
             initial_guess = [theta1, theta2, theta3, theta4]
             new_angles = inverse_kinematics(get_dh_params, desired_pos, initial_guess)
             
             # Adjust joint 4 similarly as in the "i" block.
-            new_angles[3] = normalize_angle(new_angles[3] - 90)
+            new_angles[3] = normalize_angle(new_angles[3] + 90)
             
             theta1, theta2, theta3, theta4 = new_angles
             goals[0:4] = new_angles[0:4]
